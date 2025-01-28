@@ -6,17 +6,17 @@ browser instance.
 
 ## Building the image
 
-```sh
+```bash
 docker build -t puppeteer-chrome-linux . # `puppeteer-chrome-linux` is the name of the image.
 ```
 
 ## Running the image
 
-```sh
-docker run -i --init --rm --cap-add=SYS_ADMIN --name puppeteer-chrome puppeteer-chrome-linux node -e "`cat test.js`"
+```bash
+docker run -i --init --rm --cap-add=SYS_ADMIN --name puppeteer-chrome puppeteer-chrome-linux node -e "`cat test/smoke-test.js`"
 ```
 
-`--cap-add=SYS_ADMIN` capability is needed to enable Chromium sandbox that makes the browser more secure. Alternatively, it should be possible to start the browser binary with the `--no-sandbox` flag.
+`--cap-add=SYS_ADMIN` capability is needed to enable Chrome sandbox that makes the browser more secure. Alternatively, it should be possible to start the browser binary with the `--no-sandbox` flag.
 
 ## GitHub Actions
 

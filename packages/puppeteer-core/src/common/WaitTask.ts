@@ -1,29 +1,20 @@
 /**
- * Copyright 2022 Google Inc. All rights reserved.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * @license
+ * Copyright 2022 Google Inc.
+ * SPDX-License-Identifier: Apache-2.0
  */
 
-import {ElementHandle} from '../api/ElementHandle.js';
-import {JSHandle} from '../api/JSHandle.js';
+import type {ElementHandle} from '../api/ElementHandle.js';
+import type {JSHandle} from '../api/JSHandle.js';
+import type {Realm} from '../api/Realm.js';
 import type {Poller} from '../injected/Poller.js';
-import {createDeferredPromise} from '../util/DeferredPromise.js';
+import {Deferred} from '../util/Deferred.js';
+import {isErrorLike} from '../util/ErrorLike.js';
 import {stringifyFunction} from '../util/Function.js';
 
 import {TimeoutError} from './Errors.js';
-import {IsolatedWorld} from './IsolatedWorld.js';
 import {LazyArg} from './LazyArg.js';
-import {HandleFor} from './types.js';
+import type {HandleFor} from './types.js';
 
 /**
  * @internal
@@ -32,13 +23,14 @@ export interface WaitTaskOptions {
   polling: 'raf' | 'mutation' | number;
   root?: ElementHandle<Node>;
   timeout: number;
+  signal?: AbortSignal;
 }
 
 /**
  * @internal
  */
 export class WaitTask<T = unknown> {
-  #world: IsolatedWorld;
+  #world: Realm;
   #polling: 'raf' | 'mutation' | number;
   #root?: ElementHandle<Node>;
 
@@ -46,13 +38,16 @@ export class WaitTask<T = unknown> {
   #args: unknown[];
 
   #timeout?: NodeJS.Timeout;
+  #timeoutError?: TimeoutError;
 
-  #result = createDeferredPromise<HandleFor<T>>();
+  #result = Deferred.create<HandleFor<T>>();
 
   #poller?: JSHandle<Poller<T>>;
+  #signal?: AbortSignal;
+  #reruns: AbortController[] = [];
 
   constructor(
-    world: IsolatedWorld,
+    world: Realm,
     options: WaitTaskOptions,
     fn: ((...args: unknown[]) => Promise<T>) | string,
     ...args: unknown[]
@@ -60,6 +55,10 @@ export class WaitTask<T = unknown> {
     this.#world = world;
     this.#polling = options.polling;
     this.#root = options.root;
+    this.#signal = options.signal;
+    this.#signal?.addEventListener('abort', this.#onAbortSignal, {
+      once: true,
+    });
 
     switch (typeof fn) {
       case 'string':
@@ -74,21 +73,28 @@ export class WaitTask<T = unknown> {
     this.#world.taskManager.add(this);
 
     if (options.timeout) {
+      this.#timeoutError = new TimeoutError(
+        `Waiting failed: ${options.timeout}ms exceeded`,
+      );
       this.#timeout = setTimeout(() => {
-        this.terminate(
-          new TimeoutError(`Waiting failed: ${options.timeout}ms exceeded`)
-        );
+        void this.terminate(this.#timeoutError);
       }, options.timeout);
     }
 
-    this.rerun();
+    void this.rerun();
   }
 
   get result(): Promise<HandleFor<T>> {
-    return this.#result;
+    return this.#result.valueOrThrow();
   }
 
   async rerun(): Promise<void> {
+    for (const prev of this.#reruns) {
+      prev.abort();
+    }
+    this.#reruns.length = 0;
+    const controller = new AbortController();
+    this.#reruns.push(controller);
     try {
       switch (this.#polling) {
         case 'raf':
@@ -103,7 +109,7 @@ export class WaitTask<T = unknown> {
               return context.puppeteerUtil;
             }),
             this.#fn,
-            ...this.#args
+            ...this.#args,
           );
           break;
         case 'mutation':
@@ -119,7 +125,7 @@ export class WaitTask<T = unknown> {
             }),
             this.#root,
             this.#fn,
-            ...this.#args
+            ...this.#args,
           );
           break;
         default:
@@ -135,13 +141,13 @@ export class WaitTask<T = unknown> {
             }),
             this.#polling,
             this.#fn,
-            ...this.#args
+            ...this.#args,
           );
           break;
       }
 
       await this.#poller.evaluate(poller => {
-        poller.start();
+        void poller.start();
       });
 
       const result = await this.#poller.evaluateHandle(poller => {
@@ -151,6 +157,9 @@ export class WaitTask<T = unknown> {
 
       await this.terminate();
     } catch (error) {
+      if (controller.signal.aborted) {
+        return;
+      }
       const badError = this.getBadError(error);
       if (badError) {
         await this.terminate(badError);
@@ -158,12 +167,12 @@ export class WaitTask<T = unknown> {
     }
   }
 
-  async terminate(error?: unknown): Promise<void> {
+  async terminate(error?: Error): Promise<void> {
     this.#world.taskManager.delete(this);
 
-    if (this.#timeout) {
-      clearTimeout(this.#timeout);
-    }
+    this.#signal?.removeEventListener('abort', this.#onAbortSignal);
+
+    clearTimeout(this.#timeout);
 
     if (error && !this.#result.finished()) {
       this.#result.reject(error);
@@ -171,7 +180,7 @@ export class WaitTask<T = unknown> {
 
     if (this.#poller) {
       try {
-        await this.#poller.evaluateHandle(async poller => {
+        await this.#poller.evaluate(async poller => {
           await poller.stop();
         });
         if (this.#poller) {
@@ -187,14 +196,14 @@ export class WaitTask<T = unknown> {
   /**
    * Not all errors lead to termination. They usually imply we need to rerun the task.
    */
-  getBadError(error: unknown): unknown {
-    if (error instanceof Error) {
+  getBadError(error: unknown): Error | undefined {
+    if (isErrorLike(error)) {
       // When frame is detached the task should have been terminated by the IsolatedWorld.
       // This can fail if we were adding this task while the frame was detached,
       // so we terminate here instead.
       if (
         error.message.includes(
-          'Execution context is not available in detached frame'
+          'Execution context is not available in detached frame',
         )
       ) {
         return new Error('Waiting failed: Frame detached');
@@ -211,10 +220,24 @@ export class WaitTask<T = unknown> {
       if (error.message.includes('Cannot find context with specified id')) {
         return;
       }
+
+      // Errors coming from WebDriver BiDi. TODO: Adjust messages after
+      // https://github.com/w3c/webdriver-bidi/issues/540 is resolved.
+      if (error.message.includes('DiscardedBrowsingContextError')) {
+        return;
+      }
+
+      return error;
     }
 
-    return error;
+    return new Error('WaitTask failed with an error', {
+      cause: error,
+    });
   }
+
+  #onAbortSignal = () => {
+    void this.terminate(this.#signal?.reason);
+  };
 }
 
 /**
@@ -233,7 +256,7 @@ export class TaskManager {
 
   terminateAll(error?: Error): void {
     for (const task of this.#tasks) {
-      task.terminate(error);
+      void task.terminate(error);
     }
     this.#tasks.clear();
   }
@@ -242,7 +265,7 @@ export class TaskManager {
     await Promise.all(
       [...this.#tasks].map(task => {
         return task.rerun();
-      })
+      }),
     );
   }
 }
