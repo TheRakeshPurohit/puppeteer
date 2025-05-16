@@ -2,6 +2,35 @@
 
 Combined changelog for puppeteer and puppeteer-core.
 
+## [24.8.2](https://github.com/puppeteer/puppeteer/compare/puppeteer-v24.8.1...puppeteer-v24.8.2) (2025-05-07)
+
+### Miscellaneous Chores
+
+- **puppeteer:** Synchronize puppeteer versions
+
+### Dependencies
+
+- The following workspace dependencies were updated
+  - dependencies
+    - @puppeteer/browsers bumped from 2.10.3 to 2.10.4
+
+### Bug Fixes
+
+- roll to Chrome 136.0.7103.92 ([#13854](https://github.com/puppeteer/puppeteer/issues/13854)) ([a83e6ce](https://github.com/puppeteer/puppeteer/commit/a83e6ce79729a99a4d7c8eb834aa645869185664))
+
+## [24.8.1](https://github.com/puppeteer/puppeteer/compare/puppeteer-v24.8.0...puppeteer-v24.8.1) (2025-05-06)
+
+### Bug Fixes
+
+- revert "refactor: allow importing chromium-bidi ESM" ([#13849](https://github.com/puppeteer/puppeteer/issues/13849)) ([e7f514a](https://github.com/puppeteer/puppeteer/commit/e7f514ab5a55ffed015cd89bc69feb059bf5da0c))
+- **webdriver:** bump chromium-bidi ([#13844](https://github.com/puppeteer/puppeteer/issues/13844)) ([250cccb](https://github.com/puppeteer/puppeteer/commit/250cccb57a4fd61ad92c5f54ae09e59ea87ec27d))
+
+### Dependencies
+
+- The following workspace dependencies were updated
+  - dependencies
+    - puppeteer-core bumped from 24.8.0 to 24.8.1
+
 ## [24.8.0](https://github.com/puppeteer/puppeteer/compare/puppeteer-v24.7.2...puppeteer-v24.8.0) (2025-05-02)
 
 ### Features
