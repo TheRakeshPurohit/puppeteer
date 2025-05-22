@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.10.5](https://github.com/puppeteer/puppeteer/compare/browsers-v2.10.4...browsers-v2.10.5) (2025-05-20)
+
+
+### Bug Fixes
+
+* don't expect extra arguments ([#13886](https://github.com/puppeteer/puppeteer/issues/13886)) ([fd4e8d3](https://github.com/puppeteer/puppeteer/commit/fd4e8d38385ae8d3ab4dfbf135611c6489e26d19))
+
+## [2.10.4](https://github.com/puppeteer/puppeteer/compare/browsers-v2.10.3...browsers-v2.10.4) (2025-05-07)
+
+
+### Bug Fixes
+
+* decode URL before parsing ([#13857](https://github.com/puppeteer/puppeteer/issues/13857)) ([c747eb8](https://github.com/puppeteer/puppeteer/commit/c747eb882ca3825d65167b13ebf1e016ccbbaf9b))
+
 ## [2.10.3](https://github.com/puppeteer/puppeteer/compare/browsers-v2.10.2...browsers-v2.10.3) (2025-05-02)
 
 
